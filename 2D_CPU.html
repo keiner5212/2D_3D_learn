@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animated Circle (Canvas - cpu)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+            cursor: default;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        const config = {
+            initialX: 0.5, // Relativo al ancho del canvas (0-1)
+            initialY: 0.5, // Relativo al alto del canvas (0-1)
+            radius: 30,
+            color: "blue",
+            hoverColor: "lightblue",
+            dragColor: "darkblue",
+            cursorGrab: "grab",
+            cursorGrabbing: "grabbing",
+            maxFPS: 60, // null para ilimitado
+            showFPS: true,
+            returnSpeed: 0.05, // Velocidad base de retorno (0-1)
+            returnEasing: 0.2, // Factor de suavizado (0-1)
+        };
+
+        const circle = {
+            x: 0,
+            y: 0,
+            radius: config.radius,
+            color: config.color,
+            isHovered: false,
+        };
+
+        // State variables
+        let isDragging = false;
+        let animationId = null;
+        let lastTime = 0;
+        let fps = 0;
+        const fpsHistory = [];
+        let then = performance.now();
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // Actualizar posición inicial basada en el nuevo tamaño
+            if (!isDragging) {
+                circle.x = canvas.width * config.initialX;
+                circle.y = canvas.height * config.initialY;
+            }
+        }
+
+        // Improved FPS limiter
+        function animate(time) {
+            // Calculate time since last frame
+            const now = performance.now();
+            const elapsed = now - then;
+            const interval = config.maxFPS ? 1000 / config.maxFPS : 0;
+
+            // Only proceed if enough time has passed for target FPS or no limit
+            if (!config.maxFPS || elapsed > interval) {
+                then = now - (elapsed % interval || 0);
+
+                // Calculate current FPS
+                if (lastTime) {
+                    fps = Math.round(1000 / (time - lastTime));
+                    fpsHistory.push(fps);
+                    if (fpsHistory.length > 60) fpsHistory.shift();
+                }
+                lastTime = time;
+
+                // Return to initial position if not dragging
+                if (!isDragging) {
+                    returnToInitialPosition();
+                }
+
+                // Clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw circle
+                ctx.beginPath();
+                ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+                ctx.fillStyle = circle.color;
+                ctx.fill();
+
+                // Show FPS if enabled
+                if (config.showFPS) {
+                    const avgFPS = Math.round(
+                        fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length || fps
+                    );
+
+                    ctx.fillStyle = "black";
+                    ctx.font = "14px Arial";
+                    ctx.fillText(`FPS: ${fps}${config.maxFPS ? ` (Max: ${config.maxFPS})` : ''}`, 10, 20);
+
+                    // Draw FPS graph
+                    ctx.strokeStyle = "green";
+                    ctx.beginPath();
+                    ctx.moveTo(10, 30);
+
+                    const maxFPS = Math.max(...fpsHistory, config.maxFPS || 0);
+                    const scaleY = 50 / (maxFPS || 60);
+
+                    for (let i = 0; i < fpsHistory.length; i++) {
+                        ctx.lineTo(10 + i, 80 - fpsHistory[i] * scaleY);
+                    }
+                    ctx.stroke();
+                }
+            }
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        function returnToInitialPosition() {
+            const targetX = canvas.width * config.initialX;
+            const targetY = canvas.height * config.initialY;
+            
+            // Distancia al objetivo
+            const dx = targetX - circle.x;
+            const dy = targetY - circle.y;
+            
+            // Distancia total
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0.5) { // Umbral mínimo
+                // Velocidad variable: más rápida al inicio, más lenta al final
+                const speed = config.returnSpeed * (1 + config.returnEasing * (distance / Math.max(canvas.width, canvas.height)));
+                
+                // Mover hacia el objetivo
+                circle.x += dx * speed;
+                circle.y += dy * speed;
+            } else {
+                // Snap al objetivo cuando está muy cerca
+                circle.x = targetX;
+                circle.y = targetY;
+            }
+        }
+
+        function isMouseOverCircle(x, y) {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = x - rect.left;
+            const canvasY = y - rect.top;
+            const dx = canvasX - circle.x;
+            const dy = canvasY - circle.y;
+            return Math.sqrt(dx * dx + dy * dy) < circle.radius;
+        }
+
+        // Event listeners
+        canvas.addEventListener("mousedown", (e) => {
+            if (isMouseOverCircle(e.clientX, e.clientY)) {
+                isDragging = true;
+                circle.color = config.dragColor;
+                canvas.style.cursor = config.cursorGrabbing;
+            }
+        });
+
+        canvas.addEventListener("mousemove", (e) => {
+            const isOver = isMouseOverCircle(e.clientX, e.clientY);
+
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                circle.x = e.clientX - rect.left;
+                circle.y = e.clientY - rect.top;
+            } else {
+                if (isOver && !circle.isHovered) {
+                    circle.isHovered = true;
+                    circle.color = config.hoverColor;
+                    canvas.style.cursor = config.cursorGrab;
+                } else if (!isOver && circle.isHovered) {
+                    circle.isHovered = false;
+                    circle.color = config.color;
+                    canvas.style.cursor = "default";
+                }
+            }
+        });
+
+        canvas.addEventListener("mouseup", () => {
+            if (isDragging) {
+                isDragging = false;
+                circle.isHovered = isMouseOverCircle(
+                    circle.x + canvas.getBoundingClientRect().left, 
+                    circle.y + canvas.getBoundingClientRect().top
+                );
+                circle.color = circle.isHovered ? config.hoverColor : config.color;
+                canvas.style.cursor = circle.isHovered
+                    ? config.cursorGrab
+                    : "default";
+            }
+        });
+
+        canvas.addEventListener("mouseleave", () => {
+            if (!isDragging) {
+                circle.isHovered = false;
+                circle.color = config.color;
+                canvas.style.cursor = "default";
+            }
+        });
+
+        function init() {
+            resizeCanvas();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+        });
+
+        init();
+    </script>
+</body>
+
+</html>

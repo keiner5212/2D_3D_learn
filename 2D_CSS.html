@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Animated Circle (CSS)</title>
+  <style>
+    :root {
+      --circle-size: 60px;
+      --return-ease: cubic-bezier(0.2, 1, 0.3, 1);
+      --return-duration: 0.8s;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      background: linear-gradient(to bottom, #f0f0f0, #d0d0d0);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+
+    .circle-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .circle {
+      --x: 0px;
+      --y: 0px;
+      width: var(--circle-size);
+      height: var(--circle-size);
+      background: blue;
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
+      transition: transform var(--return-duration) var(--return-ease), background 0.2s;
+      cursor: grab;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+      touch-action: none;
+    }
+
+    .circle:hover {
+      background: lightblue;
+    }
+
+    .circle:active {
+      cursor: grabbing;
+      transition: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="circle-container">
+    <div class="circle" id="circle"></div>
+  </div>
+
+  <script>
+    const circle = document.getElementById('circle');
+    let isDragging = false;
+
+    window.addEventListener('mousedown', startDrag);
+    window.addEventListener('touchstart', startDrag);
+
+    window.addEventListener('mousemove', drag);
+    window.addEventListener('touchmove', drag);
+
+    window.addEventListener('mouseup', endDrag);
+    window.addEventListener('touchend', endDrag);
+
+    function startDrag(e) {
+      isDragging = true;
+      circle.style.transition = 'none';
+    }
+
+    function drag(e) {
+      if (!isDragging) return;
+      const x = (e.touches ? e.touches[0].clientX : e.clientX) - window.innerWidth / 2;
+      const y = (e.touches ? e.touches[0].clientY : e.clientY) - window.innerHeight / 2;
+      circle.style.setProperty('--x', `${x}px`);
+      circle.style.setProperty('--y', `${y}px`);
+    }
+
+    function endDrag() {
+      if (!isDragging) return;
+      isDragging = false;
+      circle.style.transition = `transform var(--return-duration) var(--return-ease), background 0.2s`;
+      circle.style.setProperty('--x', `0px`);
+      circle.style.setProperty('--y', `0px`);
+    }
+  </script>
+</body>
+
+</html>

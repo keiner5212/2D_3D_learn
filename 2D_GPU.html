@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Animated Circle (Three.js)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            cursor: default;
+        }
+        
+        #fpsCounter {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="fpsCounter">FPS: 0</div>
+    <script type="module">
+        import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js";
+        import Stats from 'https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/libs/stats.module.js';
+
+        // Config
+        const config = {
+            initialX: 0,
+            initialY: 0,
+            radius: 0.1,
+            color: 0x0000ff,
+            hoverColor: 0x87cefa,
+            dragColor: 0x00008b,
+            returnSpeed: 0.05,
+            maxFPS: 60, // Set to null for unlimited FPS
+        };
+
+        let isDragging = false;
+        let isHovered = false;
+        let lastTime = 0;
+        let fps = 0;
+        let frameCount = 0;
+        let lastFpsUpdate = 0;
+
+        // Stats
+        const stats = new Stats();
+        stats.showPanel(0); // 0: fps, 1: ms, 2: mb
+        document.body.appendChild(stats.dom);
+
+        const scene = new THREE.Scene();
+        const aspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Create circle
+        const geometry = new THREE.CircleGeometry(config.radius, 64);
+        const material = new THREE.MeshBasicMaterial({ color: config.color });
+        const circle = new THREE.Mesh(geometry, material);
+        circle.position.set(config.initialX, config.initialY, 0);
+        scene.add(circle);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(circle);
+
+            if (!isDragging) {
+                if (intersects.length > 0 && !isHovered) {
+                    isHovered = true;
+                    material.color.set(config.hoverColor);
+                    renderer.domElement.style.cursor = "grab";
+                } else if (intersects.length === 0 && isHovered) {
+                    isHovered = false;
+                    material.color.set(config.color);
+                    renderer.domElement.style.cursor = "default";
+                }
+            }
+
+            if (isDragging) {
+                const point =
+                    intersects.length > 0
+                        ? intersects[0].point
+                        : raycaster.ray.at(1, new THREE.Vector3());
+                circle.position.x = point.x;
+                circle.position.y = point.y;
+            }
+        }
+
+        function onMouseDown(event) {
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(circle);
+            if (intersects.length > 0) {
+                isDragging = true;
+                material.color.set(config.dragColor);
+                renderer.domElement.style.cursor = "grabbing";
+            }
+        }
+
+        function onMouseUp() {
+            if (isDragging) {
+                isDragging = false;
+                material.color.set(isHovered ? config.hoverColor : config.color);
+                renderer.domElement.style.cursor = isHovered ? "grab" : "default";
+            }
+        }
+
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mousedown", onMouseDown);
+        window.addEventListener("mouseup", onMouseUp);
+
+        function updateFPS(time) {
+            frameCount++;
+            
+            // Update FPS counter every second
+            if (time - lastFpsUpdate >= 1000) {
+                fps = Math.round(frameCount * 1000 / (time - lastFpsUpdate));
+                document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                frameCount = 0;
+                lastFpsUpdate = time;
+            }
+        }
+
+        function animate(time) {
+            stats.begin();
+            
+            // FPS limiting logic
+            if (config.maxFPS) {
+                const now = performance.now();
+                const delta = now - lastTime;
+                const interval = 1000 / config.maxFPS;
+                
+                if (delta > interval) {
+                    lastTime = now - (delta % interval);
+                    updateFPS(now);
+                    renderScene();
+                }
+            } else {
+                updateFPS(time);
+                renderScene();
+            }
+            
+            stats.end();
+            requestAnimationFrame(animate);
+        }
+
+        function renderScene() {
+            // Smooth return to original position
+            if (!isDragging) {
+                circle.position.x +=
+                    (config.initialX - circle.position.x) * config.returnSpeed;
+                circle.position.y +=
+                    (config.initialY - circle.position.y) * config.returnSpeed;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -aspect;
+            camera.right = aspect;
+            camera.top = 1;
+            camera.bottom = -1;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.addEventListener("resize", onWindowResize);
+
+        animate();
+    </script>
+</body>
+
+</html>

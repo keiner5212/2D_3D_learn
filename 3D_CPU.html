@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Interactive Sphere (Canvas - cpu)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+        
+        canvas {
+            display: block;
+            cursor: default;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        Click and drag to move the sphere | Hold SPACE and move mouse to rotate camera
+    </div>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        const config = {
+            initialX: 0.5,
+            initialY: 0.5,
+            initialZ: 0,
+            radius: 80,
+            color: "#3498db",
+            hoverColor: "#5dade2",
+            dragColor: "#2874a6",
+            lineColor: "#ffffff",
+            cursorGrab: "grab",
+            cursorGrabbing: "grabbing",
+            maxFPS: 60,
+            showFPS: true,
+            returnSpeed: 0.05,
+            returnEasing: 0.2,
+            cameraDistance: 600,
+            rotationSpeed: 0.005,
+            sphereSegments: 36,
+            lightDirection: { x: 1, y: 1, z: 1 },
+            ambientLight: 0.3,
+            diffuseLight: 0.7,
+            boxSize: 400,
+            boxFaceColors: ["#ff000077", "#00ff0077", "#0000ff77", "#ffff0077", "#ff00ff77", "#00ffff77"]
+        };
+
+        // Normalizar la dirección de la luz
+        const lightLength = Math.sqrt(
+            config.lightDirection.x * config.lightDirection.x +
+            config.lightDirection.y * config.lightDirection.y +
+            config.lightDirection.z * config.lightDirection.z
+        );
+        config.lightDirection.x /= lightLength;
+        config.lightDirection.y /= lightLength;
+        config.lightDirection.z /= lightLength;
+
+        const sphere = {
+            x: 0,
+            y: 0,
+            z: config.initialZ,
+            radius: config.radius,
+            color: config.color,
+            isHovered: false,
+            segments: [],
+            lines: []
+        };
+
+        // Variables de estado
+        let isDragging = false;
+        let isRotating = false;
+        let spacePressed = false;
+        let animationId = null;
+        let lastTime = 0;
+        let fps = 0;
+        const fpsHistory = [];
+        let then = performance.now();
+
+        // Variables de la cámara
+        let camera = {
+            angleX: Math.PI / 6,
+            angleY: Math.PI / 4,
+            distance: config.cameraDistance
+        };
+
+        // Precalcular los segmentos y líneas de la esfera
+        function initSphereGeometry() {
+            sphere.segments = [];
+            sphere.lines = [];
+            const segments = config.sphereSegments;
+            
+            // Segmentos para la superficie
+            for (let lat = 0; lat <= segments; lat++) {
+                const theta = lat * Math.PI / segments;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+                
+                for (let lon = 0; lon <= segments; lon++) {
+                    const phi = lon * 2 * Math.PI / segments;
+                    const sinPhi = Math.sin(phi);
+                    const cosPhi = Math.cos(phi);
+                    
+                    const x = cosPhi * sinTheta;
+                    const y = cosTheta;
+                    const z = sinPhi * sinTheta;
+                    
+                    sphere.segments.push({ x, y, z });
+                }
+            }
+            
+            // Líneas de guía (como un balón de baloncesto)
+            // Círculos horizontales (latitud)
+            for (let i = 0; i <= 4; i++) {
+                const theta = i * Math.PI / 4;
+                const circle = [];
+                for (let j = 0; j <= 32; j++) {
+                    const phi = j * 2 * Math.PI / 32;
+                    const x = Math.cos(phi) * Math.sin(theta);
+                    const y = Math.cos(theta);
+                    const z = Math.sin(phi) * Math.sin(theta);
+                    circle.push({ x, y, z });
+                }
+                sphere.lines.push(circle);
+            }
+            
+            // Líneas verticales (longitud)
+            for (let i = 0; i < 8; i++) {
+                const phi = i * 2 * Math.PI / 8;
+                const line = [];
+                for (let j = 0; j <= 16; j++) {
+                    const theta = j * Math.PI / 16;
+                    const x = Math.cos(phi) * Math.sin(theta);
+                    const y = Math.cos(theta);
+                    const z = Math.sin(phi) * Math.sin(theta);
+                    line.push({ x, y, z });
+                }
+                sphere.lines.push(line);
+            }
+        }
+
+        // Definir los vértices de la caja de referencia
+        function initReferenceBox() {
+            const s = config.boxSize / 2;
+            return {
+                vertices: [
+                    { x: -s, y: -s, z: -s }, // 0
+                    { x: s, y: -s, z: -s },  // 1
+                    { x: s, y: s, z: -s },   // 2
+                    { x: -s, y: s, z: -s },  // 3
+                    { x: -s, y: -s, z: s },  // 4
+                    { x: s, y: -s, z: s },   // 5
+                    { x: s, y: s, z: s },    // 6
+                    { x: -s, y: s, z: s }    // 7
+                ],
+                faces: [
+                    { indices: [0, 1, 2, 3], color: config.boxFaceColors[0] }, // Frente
+                    { indices: [4, 5, 6, 7], color: config.boxFaceColors[1] }, // Atrás
+                    { indices: [0, 3, 7, 4], color: config.boxFaceColors[2] }, // Izquierda
+                    { indices: [1, 2, 6, 5], color: config.boxFaceColors[3] }, // Derecha
+                    { indices: [0, 1, 5, 4], color: config.boxFaceColors[4] }, // Abajo
+                    { indices: [3, 2, 6, 7], color: config.boxFaceColors[5] }  // Arriba
+                ]
+            };
+        }
+
+        const referenceBox = initReferenceBox();
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            if (!isDragging) {
+                sphere.x = canvas.width * config.initialX;
+                sphere.y = canvas.height * config.initialY;
+                sphere.z = config.initialZ;
+            }
+        }
+
+        function project3DTo2D(x, y, z) {
+            // Aplicar rotación de la cámara
+            const cosX = Math.cos(camera.angleX);
+            const sinX = Math.sin(camera.angleX);
+            const cosY = Math.cos(camera.angleY);
+            const sinY = Math.sin(camera.angleY);
+            
+            // Rotar alrededor del eje Y
+            let x1 = x * cosY - z * sinY;
+            let z1 = x * sinY + z * cosY;
+            
+            // Rotar alrededor del eje X
+            let y1 = y * cosX - z1 * sinX;
+            z1 = y * sinX + z1 * cosX;
+            
+            // Aplicar perspectiva
+            const scale = camera.distance / (camera.distance + z1);
+            const x2d = x1 * scale + canvas.width / 2;
+            const y2d = y1 * scale + canvas.height / 2;
+            
+            return { x: x2d, y: y2d, z: z1, scale: scale };
+        }
+
+        function drawReferenceBox() {
+            // Proyectar todos los vértices
+            const projectedVertices = referenceBox.vertices.map(v => {
+                return project3DTo2D(
+                    v.x + sphere.x - canvas.width / 2,
+                    v.y + sphere.y - canvas.height / 2,
+                    v.z + sphere.z
+                );
+            });
+            
+            // Ordenar caras por profundidad (painter's algorithm)
+            const facesWithDepth = referenceBox.faces.map(face => {
+                const depth = face.indices.reduce((sum, idx) => {
+                    return sum + projectedVertices[idx].z;
+                }, 0) / face.indices.length;
+                return { ...face, depth };
+            }).sort((a, b) => b.depth - a.depth);
+            
+            // Dibujar cada cara
+            facesWithDepth.forEach(face => {
+                const points = face.indices.map(idx => projectedVertices[idx]);
+                
+                // Solo dibujar si la cara está orientada hacia la cámara
+                const normal = calculateNormal(
+                    points[0], points[1], points[2]
+                );
+                
+                if (normal.z < 0) return; // Cara de espaldas a la cámara
+                
+                // Dibujar la cara
+                ctx.fillStyle = face.color;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                
+                // Dibujar el borde de la cara
+                ctx.strokeStyle = "#00000055";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+        }
+
+        function calculateNormal(p1, p2, p3) {
+            // Convertir a coordenadas 3D antes de la proyección
+            const v1 = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z };
+            const v2 = { x: p3.x - p1.x, y: p3.y - p1.y, z: p3.z - p1.z };
+            
+            // Producto cruz
+            const normal = {
+                x: v1.y * v2.z - v1.z * v2.y,
+                y: v1.z * v2.x - v1.x * v2.z,
+                z: v1.x * v2.y - v1.y * v2.x
+            };
+            
+            // Normalizar
+            const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+            return {
+                x: normal.x / length,
+                y: normal.y / length,
+                z: normal.z / length
+            };
+        }
+
+        function drawSphere() {
+            const segments = config.sphereSegments;
+            const points2D = [];
+            
+            // Proyectar todos los puntos a 2D
+            for (let i = 0; i < sphere.segments.length; i++) {
+                const point = sphere.segments[i];
+                const projected = project3DTo2D(
+                    sphere.x + point.x * sphere.radius - canvas.width / 2,
+                    sphere.y + point.y * sphere.radius - canvas.height / 2,
+                    sphere.z + point.z * sphere.radius
+                );
+                
+                points2D.push({
+                    x: projected.x,
+                    y: projected.y,
+                    z: projected.z,
+                    scale: projected.scale,
+                    original: point
+                });
+            }
+            
+            // Ordenar los puntos por Z para dibujar correctamente
+            points2D.sort((a, b) => b.z - a.z);
+            
+            // Dibujar la superficie de la esfera
+            for (let lat = 0; lat < segments; lat++) {
+                for (let lon = 0; lon < segments; lon++) {
+                    const index = lat * (segments + 1) + lon;
+                    
+                    if (index + segments + 2 >= points2D.length) continue;
+                    
+                    const p1 = points2D[index];
+                    const p2 = points2D[index + 1];
+                    const p3 = points2D[index + segments + 1];
+                    const p4 = points2D[index + segments + 2];
+                    
+                    // Calcular el color basado en la iluminación
+                    const normal = {
+                        x: (p1.original.x + p2.original.x + p3.original.x + p4.original.x) / 4,
+                        y: (p1.original.y + p2.original.y + p3.original.y + p4.original.y) / 4,
+                        z: (p1.original.z + p2.original.z + p3.original.z + p4.original.z) / 4
+                    };
+                    
+                    // Normalizar el vector normal
+                    const normalLength = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+                    normal.x /= normalLength;
+                    normal.y /= normalLength;
+                    normal.z /= normalLength;
+                    
+                    // Producto punto entre la normal y la dirección de la luz
+                    let dot = normal.x * config.lightDirection.x + 
+                              normal.y * config.lightDirection.y + 
+                              normal.z * config.lightDirection.z;
+                    dot = Math.max(0, dot); // No iluminación negativa
+                    
+                    // Calcular intensidad de luz
+                    const lightIntensity = config.ambientLight + config.diffuseLight * dot;
+                    
+                    // Aplicar color
+                    let color = sphere.color;
+                    if (sphere.isHovered) color = config.hoverColor;
+                    if (isDragging) color = config.dragColor;
+                    
+                    // Oscurecer el color basado en la iluminación
+                    const shadedColor = shadeColor(color, lightIntensity);
+                    
+                    // Dibujar el segmento
+                    ctx.fillStyle = shadedColor;
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.lineTo(p4.x, p4.y);
+                    ctx.lineTo(p3.x, p3.y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            
+            // Dibujar las líneas de guía
+            ctx.strokeStyle = config.lineColor;
+            ctx.lineWidth = 1.5;
+            
+            sphere.lines.forEach(line => {
+                ctx.beginPath();
+                const firstPoint = line[0];
+                const projectedFirst = project3DTo2D(
+                    sphere.x + firstPoint.x * sphere.radius - canvas.width / 2,
+                    sphere.y + firstPoint.y * sphere.radius - canvas.height / 2,
+                    sphere.z + firstPoint.z * sphere.radius
+                );
+                ctx.moveTo(projectedFirst.x, projectedFirst.y);
+                
+                for (let i = 1; i < line.length; i++) {
+                    const point = line[i];
+                    const projected = project3DTo2D(
+                        sphere.x + point.x * sphere.radius - canvas.width / 2,
+                        sphere.y + point.y * sphere.radius - canvas.height / 2,
+                        sphere.z + point.z * sphere.radius
+                    );
+                    ctx.lineTo(projected.x, projected.y);
+                }
+                
+                ctx.stroke();
+            });
+        }
+
+        function shadeColor(color, intensity) {
+            let r = parseInt(color.substr(1, 2), 16);
+            let g = parseInt(color.substr(3, 2), 16);
+            let b = parseInt(color.substr(5, 2), 16);
+            
+            r = Math.min(255, Math.max(0, Math.round(r * intensity)));
+            g = Math.min(255, Math.max(0, Math.round(g * intensity)));
+            b = Math.min(255, Math.max(0, Math.round(b * intensity)));
+            
+            return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+        }
+
+        function animate(time) {
+            const now = performance.now();
+            const elapsed = now - then;
+            const interval = config.maxFPS ? 1000 / config.maxFPS : 0;
+
+            if (!config.maxFPS || elapsed > interval) {
+                then = now - (elapsed % interval || 0);
+
+                if (lastTime) {
+                    fps = Math.round(1000 / (time - lastTime));
+                    fpsHistory.push(fps);
+                    if (fpsHistory.length > 60) fpsHistory.shift();
+                }
+                lastTime = time;
+
+                if (!isDragging) {
+                    returnToInitialPosition();
+                }
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Dibujar la caja de referencia primero (como fondo)
+                drawReferenceBox();
+                
+                // Luego dibujar la esfera
+                drawSphere();
+
+                if (config.showFPS) {
+                    const avgFPS = Math.round(
+                        fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length || fps
+                    );
+
+                    ctx.fillStyle = "black";
+                    ctx.font = "14px Arial";
+                    ctx.fillText(`FPS: ${fps}${config.maxFPS ? ` (Max: ${config.maxFPS})` : ''}`, 10, 20);
+
+                    ctx.strokeStyle = "green";
+                    ctx.beginPath();
+                    ctx.moveTo(10, 30);
+
+                    const maxFPS = Math.max(...fpsHistory, config.maxFPS || 0);
+                    const scaleY = 50 / (maxFPS || 60);
+
+                    for (let i = 0; i < fpsHistory.length; i++) {
+                        ctx.lineTo(10 + i, 80 - fpsHistory[i] * scaleY);
+                    }
+                    ctx.stroke();
+                }
+            }
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        function returnToInitialPosition() {
+            const targetX = canvas.width * config.initialX;
+            const targetY = canvas.height * config.initialY;
+            const targetZ = config.initialZ;
+            
+            const dx = targetX - sphere.x;
+            const dy = targetY - sphere.y;
+            const dz = targetZ - sphere.z;
+            
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            
+            if (distance > 0.5) {
+                const speed = config.returnSpeed * (1 + config.returnEasing * (distance / Math.max(canvas.width, canvas.height)));
+                
+                sphere.x += dx * speed;
+                sphere.y += dy * speed;
+                sphere.z += dz * speed;
+            } else {
+                sphere.x = targetX;
+                sphere.y = targetY;
+                sphere.z = targetZ;
+            }
+        }
+
+        function isMouseOverSphere(x, y) {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = x - rect.left;
+            const canvasY = y - rect.top;
+            
+            const projected = project3DTo2D(
+                sphere.x - canvas.width / 2,
+                sphere.y - canvas.height / 2,
+                sphere.z
+            );
+            
+            const dx = canvasX - projected.x;
+            const dy = canvasY - projected.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            const apparentRadius = sphere.radius * projected.scale;
+            
+            return distance < apparentRadius;
+        }
+
+        // Event listeners
+        canvas.addEventListener("mousedown", (e) => {
+            if (spacePressed) {
+                isRotating = true;
+                canvas.style.cursor = "move";
+            } else if (isMouseOverSphere(e.clientX, e.clientY)) {
+                isDragging = true;
+                sphere.color = config.dragColor;
+                canvas.style.cursor = config.cursorGrabbing;
+            }
+        });
+
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            if (isRotating) {
+                const dx = mouseX - lastMouseX;
+                const dy = mouseY - lastMouseY;
+                
+                camera.angleY += dx * config.rotationSpeed;
+                camera.angleX += dy * config.rotationSpeed;
+                
+                camera.angleX = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.angleX));
+            } else if (isDragging) {
+                sphere.x = mouseX;
+                sphere.y = mouseY;
+            } else {
+                const isOver = isMouseOverSphere(e.clientX, e.clientY);
+                
+                if (isOver && !sphere.isHovered) {
+                    sphere.isHovered = true;
+                    sphere.color = config.hoverColor;
+                    canvas.style.cursor = config.cursorGrab;
+                } else if (!isOver && sphere.isHovered) {
+                    sphere.isHovered = false;
+                    sphere.color = config.color;
+                    canvas.style.cursor = "default";
+                }
+            }
+            
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+        });
+
+        canvas.addEventListener("mouseup", () => {
+            if (isDragging) {
+                isDragging = false;
+                sphere.isHovered = isMouseOverSphere(
+                    sphere.x + canvas.getBoundingClientRect().left, 
+                    sphere.y + canvas.getBoundingClientRect().top
+                );
+                sphere.color = sphere.isHovered ? config.hoverColor : config.color;
+                canvas.style.cursor = sphere.isHovered ? config.cursorGrab : "default";
+            }
+            
+            if (isRotating) {
+                isRotating = false;
+                canvas.style.cursor = "default";
+            }
+        });
+
+        canvas.addEventListener("mouseleave", () => {
+            if (!isDragging && !isRotating) {
+                sphere.isHovered = false;
+                sphere.color = config.color;
+                canvas.style.cursor = "default";
+            }
+        });
+
+        document.addEventListener("keydown", (e) => {
+            if (e.code === "Space") {
+                spacePressed = true;
+            }
+        });
+
+        document.addEventListener("keyup", (e) => {
+            if (e.code === "Space") {
+                spacePressed = false;
+                if (isRotating) {
+                    isRotating = false;
+                    canvas.style.cursor = "default";
+                }
+            }
+        });
+
+        function init() {
+            initSphereGeometry();
+            resizeCanvas();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+        });
+
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Interactive Sphere (Three.js)</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/"
+            }
+        }
+    </script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+
+        canvas {
+            display: block;
+            cursor: default;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        #stats {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="instructions">
+        Haz clic y arrastra para mover la esfera | Mantén presionado **ESPACIO** y arrastra el ratón para rotar la
+        cámara
+    </div>
+    <div id="stats"></div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import Stats from 'three/addons/libs/stats.module.js';
+
+        const config = {
+            initialPosition: { x: 0, y: 0, z: 0 },
+            sphereRadius: 80,
+            sphereColor: "#3498db",
+            hoverColor: "#5dade2",
+            dragColor: "#2874a6",
+            lineColor: "#000000",
+            cursorGrab: "grab",
+            cursorGrabbing: "grabbing",
+            returnSpeed: 0.05,
+            returnEasing: 0.2,
+            cameraDistance: 600,
+            rotationSpeed: 0.5,
+            boxSize: 400,
+            boxFaceColors: ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"],
+            boxOpacity: 0.47
+        };
+
+        // Variables de estado
+        let isDragging = false;
+        let spacePressed = false;
+        let mouse = new THREE.Vector2();
+        let raycaster = new THREE.Raycaster();
+
+        const trueInitialPosition = new THREE.Vector3(
+            config.initialPosition.x,
+            config.initialPosition.y,
+            config.initialPosition.z
+        );
+        let currentTargetPosition = trueInitialPosition.clone(); 
+
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0);
+
+        // Cámara
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+        );
+        camera.position.set(0, 0, config.cameraDistance);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        const orbitControls = new OrbitControls(camera, renderer.domElement);
+        orbitControls.enableZoom = true;
+        orbitControls.enablePan = false;
+        orbitControls.enableDamping = true;
+        orbitControls.dampingFactor = 0.05;
+        orbitControls.rotateSpeed = config.rotationSpeed;
+        orbitControls.enabled = false;
+
+        // Stats (FPS counter)
+        const stats = new Stats();
+        stats.showPanel(0);
+        document.getElementById('stats').appendChild(stats.dom);
+
+        // Luz
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1).normalize();
+        scene.add(directionalLight);
+
+        // Crear esfera
+        const sphereGeometry = new THREE.SphereGeometry(
+            config.sphereRadius,
+            32,
+            32
+        );
+
+        const sphereMaterial = new THREE.MeshPhongMaterial({
+            color: new THREE.Color(config.sphereColor),
+            specular: 0x111111,
+            shininess: 30,
+            transparent: true,
+            opacity: 0.7,
+            envMap: null,
+            combine: THREE.MixOperation,
+            reflectivity: 0.8
+        });
+
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        sphere.position.copy(trueInitialPosition); 
+        scene.add(sphere);
+
+        const originalColor = new THREE.Color(config.sphereColor);
+        const hoverColor = new THREE.Color(config.hoverColor);
+        const dragColor = new THREE.Color(config.dragColor);
+        sphere.userData.originalColor = originalColor;
+
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: new THREE.Color(config.lineColor),
+            transparent: false,
+            opacity: 1,
+            depthTest: true,
+            linewidth: 2
+        });
+
+        // Círculos de latitud
+        for (let i = 0; i <= 4; i++) {
+            const theta = i * Math.PI / 4;
+            const radius = Math.sin(theta) * config.sphereRadius;
+            const y = Math.cos(theta) * config.sphereRadius;
+
+            const circleGeometry = new THREE.BufferGeometry();
+            const points = [];
+
+            for (let j = 0; j <= 32; j++) {
+                const phi = j * 2 * Math.PI / 32;
+                const x = Math.cos(phi) * radius;
+                const z = Math.sin(phi) * radius;
+                points.push(new THREE.Vector3(x, y, z));
+            }
+
+            circleGeometry.setFromPoints(points);
+            const circle = new THREE.Line(circleGeometry, lineMaterial);
+            circle.renderOrder = 1;
+            sphere.add(circle);
+        }
+
+        // Líneas de longitud
+        for (let i = 0; i < 8; i++) {
+            const phi = i * 2 * Math.PI / 8;
+            const lineGeometry = new THREE.BufferGeometry();
+            const points = [];
+
+            for (let j = 0; j <= 16; j++) {
+                const theta = j * Math.PI / 16;
+                const x = Math.cos(phi) * Math.sin(theta) * config.sphereRadius;
+                const y = Math.cos(theta) * config.sphereRadius;
+                const z = Math.sin(phi) * Math.sin(theta) * config.sphereRadius;
+                points.push(new THREE.Vector3(x, y, z));
+            }
+
+            lineGeometry.setFromPoints(points);
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            line.renderOrder = 1;
+            sphere.add(line);
+        }
+
+        // Crear caja de referencia
+        const boxSize = config.boxSize;
+        const boxGeometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+
+        // Materiales para cada cara
+        const boxMaterials = config.boxFaceColors.map(color =>
+            new THREE.MeshBasicMaterial({
+                color: new THREE.Color(color),
+                transparent: true,
+                opacity: config.boxOpacity,
+                side: THREE.DoubleSide
+            })
+        );
+
+        const referenceBox = new THREE.Mesh(boxGeometry, boxMaterials);
+        scene.add(referenceBox);
+
+        // Función para manejar el resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Función para renderizar la escena
+        function renderScene() {
+            orbitControls.update();
+            if (!isDragging) {
+                sphere.position.lerp(trueInitialPosition, config.returnSpeed * (1 + config.returnEasing));
+                if (sphere.position.distanceTo(trueInitialPosition) < 0.1) {
+                    sphere.position.copy(trueInitialPosition);
+                }
+            }
+            referenceBox.position.copy(sphere.position);
+
+            renderer.render(scene, camera);
+        }
+
+        // Función para animar
+        function animate() {
+            stats.begin();
+            renderScene();
+            stats.end();
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            if (spacePressed) {
+                return;
+            }
+
+            if (isDragging) {
+                raycaster.setFromCamera(mouse, camera);
+                const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+                    new THREE.Vector3(0, 0, 1).transformDirection(camera.matrixWorld),
+                    sphere.position
+                );
+                const intersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(plane, intersection);
+
+                sphere.position.copy(intersection);
+            } else {
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(sphere);
+
+                if (intersects.length > 0) {
+                    if (!sphere.userData.isHovered) {
+                        sphere.userData.isHovered = true;
+                        sphere.material.color.copy(hoverColor);
+                        document.body.style.cursor = config.cursorGrab;
+                    }
+                } else {
+                    if (sphere.userData.isHovered) {
+                        sphere.userData.isHovered = false;
+                        sphere.material.color.copy(originalColor);
+                        document.body.style.cursor = "default";
+                    }
+                }
+            }
+        }
+
+        function onMouseDown(event) {
+            if (spacePressed) {
+                orbitControls.enabled = true;
+                document.body.style.cursor = "move";
+                return;
+            }
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(sphere);
+
+            if (intersects.length > 0) {
+                isDragging = true;
+                sphere.material.color.copy(dragColor);
+                document.body.style.cursor = config.cursorGrabbing;
+            }
+        }
+
+        function onMouseUp() {
+            if (spacePressed) {
+                orbitControls.enabled = true;
+                document.body.style.cursor = "move";
+            } else {
+                orbitControls.enabled = false;
+                document.body.style.cursor = "default";
+
+                if (isDragging) {
+                    isDragging = false;
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObject(sphere);
+
+                    if (intersects.length > 0) {
+                        sphere.userData.isHovered = true;
+                        sphere.material.color.copy(hoverColor);
+                        document.body.style.cursor = config.cursorGrab;
+                    } else {
+                        sphere.userData.isHovered = false;
+                        sphere.material.color.copy(originalColor);
+                        document.body.style.cursor = "default";
+                    }
+                }
+            }
+        }
+
+        function onKeyDown(event) {
+            if (event.code === "Space" && !spacePressed) {
+                spacePressed = true;
+                if (isDragging) {
+                    isDragging = false;
+                    sphere.material.color.copy(sphere.userData.isHovered ? hoverColor : originalColor);
+                }
+                orbitControls.enabled = true;
+                document.body.style.cursor = "move";
+            }
+        }
+
+        function onKeyUp(event) {
+            if (event.code === "Space") {
+                spacePressed = false;
+                orbitControls.enabled = false;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(sphere);
+                if (intersects.length > 0 && !isDragging) {
+                    document.body.style.cursor = config.cursorGrab;
+                } else {
+                    document.body.style.cursor = "default";
+                }
+            }
+        }
+
+        // Configurar event listeners
+        window.addEventListener('resize', onWindowResize);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        animate();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Interactive Sphere (CSS)</title>
+    <style>
+        :root {
+            --sphere-radius: 50px;
+            /* Radio de la esfera */
+            --sphere-dot-size: 8px;
+            /* Tamaño de los puntos/escamas en la esfera */
+            --box-size: 350px;
+            /* Tamaño del lado de la caja */
+            --camera-distance: 1500px;
+            /* Distancia de la perspectiva */
+
+            --color-sphere-base: #8A2BE2;
+            --color-sphere-dot: rgba(255, 255, 255, 0.7);
+            --color-sphere-dot-highlight: rgba(255, 255, 255, 1);
+
+            --color-box-face-0: #ff000077;
+            --color-box-face-1: #00ff0077;
+            --color-box-face-2: #0000ff77;
+            --color-box-face-3: #ffff0077;
+            --color-box-face-4: #ff00ff77;
+            --color-box-face-5: #00ffff77;
+
+            --object-translate-x: 0px;
+            --object-translate-y: 0px;
+            --object-translate-z: 0px;
+            --camera-rotate-x: 0rad;
+            --camera-rotate-y: 0rad;
+        }
+
+        body {
+            margin: 0;
+            height: 100vh;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            cursor: default;
+            perspective: var(--camera-distance);
+            perspective-origin: center center;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        .camera-container {
+            width: 1px;
+            height: 1px;
+            position: relative;
+            transform-style: preserve-3d;
+            transform:
+                rotateX(var(--camera-rotate-x)) rotateY(var(--camera-rotate-y));
+            transition: transform 0.2s ease-out;
+        }
+
+        .camera-container.no-transition {
+            transition: none;
+            cursor: move;
+        }
+
+        .object-container {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform-style: preserve-3d;
+            transform:
+                translateX(var(--object-translate-x)) translateY(var(--object-translate-y)) translateZ(var(--object-translate-z)) translate(-50%, -50%);
+            transition: transform 0.8s cubic-bezier(0.2, 1, 0.3, 1);
+        }
+
+        .object-container.no-transition {
+            transition: none;
+        }
+
+        .sphere-container {
+            position: absolute;
+            transform-style: preserve-3d;
+            width: calc(var(--sphere-radius) * 2);
+            height: calc(var(--sphere-radius) * 2);
+            z-index: 10;
+            touch-action: none;
+            pointer-events: none;
+        }
+
+        .sphere-container::before {
+            content: '';
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: var(--color-sphere-base);
+            box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.4);
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            z-index: 0;
+        }
+
+        .sphere-dot {
+            position: absolute;
+            width: var(--sphere-dot-size);
+            height: var(--sphere-dot-size);
+            background-color: var(--color-sphere-dot);
+            border-radius: 50%;
+            transform: translate(-50%, -50%) translate3d(var(--x, 0), var(--y, 0), var(--z, 0));
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+        }
+
+        .sphere-dot.highlight {
+            background-color: var(--color-sphere-dot-highlight);
+        }
+
+        /* --- Caja de Referencia 3D --- */
+        .box-3d {
+            width: var(--box-size);
+            height: var(--box-size);
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            transform-style: preserve-3d;
+            z-index: 5;
+            cursor: grab;
+        }
+
+        .box-face {
+            position: absolute;
+            width: var(--box-size);
+            height: var(--box-size);
+            border: 1px solid rgba(0, 0, 0, 0.3);
+        }
+
+        .face-front {
+            transform: rotateY(0deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-0);
+        }
+
+        .face-back {
+            transform: rotateY(180deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-1);
+        }
+
+        .face-right {
+            transform: rotateY(90deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-2);
+        }
+
+        .face-left {
+            transform: rotateY(-90deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-3);
+        }
+
+        .face-top {
+            transform: rotateX(90deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-4);
+        }
+
+        .face-bottom {
+            transform: rotateX(-90deg) translateZ(calc(var(--box-size) / 2));
+            background-color: var(--color-box-face-5);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="instructions">
+        Haz clic y arrastra la caja para mover el objeto | Mantén ESPACIO presionado y arrastra el ratón para rotar la
+        cámara
+    </div>
+
+    <div class="camera-container" id="cameraContainer">
+        <div class="object-container" id="objectContainer">
+            <div class="box-3d" id="draggableBox">
+                <div class="box-face face-front"></div>
+                <div class="box-face face-back"></div>
+                <div class="box-face face-right"></div>
+                <div class="box-face face-left"></div>
+                <div class="box-face face-top"></div>
+                <div class="box-face face-bottom"></div>
+            </div>
+
+            <div class="sphere-container" id="sphereContainer">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cameraContainer = document.getElementById('cameraContainer');
+        const objectContainer = document.getElementById('objectContainer');
+        const sphereContainer = document.getElementById('sphereContainer');
+        const draggableBox = document.getElementById('draggableBox');
+
+        let isDraggingObject = false;
+        let isRotatingCamera = false;
+        let spacePressed = false;
+
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        let currentObjectTranslateX = 0;
+        let currentObjectTranslateY = 0;
+        let currentObjectTranslateZ = 0;
+
+        let currentCameraRotateX = 0;
+        let currentCameraRotateY = 0;
+
+        const sphereRadius = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sphere-radius'));
+
+        function applyTransforms() {
+            objectContainer.style.transform = `
+                translateX(${currentObjectTranslateX}px)
+                translateY(${currentObjectTranslateY}px)
+                translateZ(${currentObjectTranslateZ}px)
+                translate(-50%, -50%)
+            `;
+
+            cameraContainer.style.setProperty('--camera-rotate-x', `${currentCameraRotateX}rad`);
+            cameraContainer.style.setProperty('--camera-rotate-y', `${currentCameraRotateY}rad`);
+        }
+
+        function generateSphereDots(numLatitudeBands = 16, numLongitudeBands = 32) {
+            Array.from(sphereContainer.children).forEach(child => {
+                if (child.classList.contains('sphere-dot')) {
+                    sphereContainer.removeChild(child);
+                }
+            });
+
+            for (let i = 0; i <= numLatitudeBands; i++) {
+                const latAngle = (i * Math.PI) / numLatitudeBands;
+                const yPos = sphereRadius * Math.cos(latAngle);
+
+                for (let j = 0; j <= numLongitudeBands; j++) {
+                    const lonAngle = (j * 2 * Math.PI) / numLongitudeBands;
+
+                    const xPos = sphereRadius * Math.sin(latAngle) * Math.cos(lonAngle);
+                    const zPos = sphereRadius * Math.sin(latAngle) * Math.sin(lonAngle);
+
+                    const dot = document.createElement('div');
+                    dot.classList.add('sphere-dot');
+                    dot.style.setProperty('--x', `${xPos}px`);
+                    dot.style.setProperty('--y', `${yPos}px`);
+                    dot.style.setProperty('--z', `${zPos}px`);
+                    sphereContainer.appendChild(dot);
+                }
+            }
+        }
+
+        function returnToInitialPosition() {
+            objectContainer.classList.remove('no-transition');
+            currentObjectTranslateX = 0;
+            currentObjectTranslateY = 0;
+            currentObjectTranslateZ = 0;
+            applyTransforms();
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('mousedown', (e) => {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+
+            if (e.button === 0) {
+                if (spacePressed) {
+                    isRotatingCamera = true;
+                    cameraContainer.classList.add('no-transition');
+                    document.body.style.cursor = 'move';
+                } else if (e.target.closest('#draggableBox')) {
+                    isDraggingObject = true;
+                    objectContainer.classList.add('no-transition');
+                    draggableBox.style.cursor = 'grabbing';
+                }
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const dx = e.clientX - lastMouseX;
+            const dy = e.clientY - lastMouseY;
+
+            if (isRotatingCamera) {
+                currentCameraRotateY += dx * 0.005;
+                currentCameraRotateX -= dy * 0.005;
+                currentCameraRotateX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, currentCameraRotateX));
+            } else if (isDraggingObject) {
+                currentObjectTranslateX += dx;
+                currentObjectTranslateY += dy;
+            }
+            applyTransforms();
+
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDraggingObject) {
+                isDraggingObject = false;
+                objectContainer.classList.remove('no-transition');
+                draggableBox.style.cursor = 'grab';
+                returnToInitialPosition();
+            }
+            if (isRotatingCamera) {
+                isRotatingCamera = false;
+                setTimeout(() => {
+                    cameraContainer.classList.remove('no-transition');
+                }, 50);
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !e.repeat) {
+                spacePressed = true;
+                if (!isDraggingObject) {
+                    document.body.style.cursor = 'grab';
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                spacePressed = false;
+                if (isRotatingCamera) {
+                    isRotatingCamera = false;
+                    setTimeout(() => {
+                        cameraContainer.classList.remove('no-transition');
+                    }, 50);
+                    document.body.style.cursor = 'default';
+                } else if (!isDraggingObject) {
+                    document.body.style.cursor = 'default';
+                }
+            }
+        });
+
+        // --- Inicialización ---
+        function init() {
+            generateSphereDots();
+            applyTransforms();
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+
+</html>
